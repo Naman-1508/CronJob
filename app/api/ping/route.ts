@@ -8,7 +8,7 @@ export async function POST(req: NextRequest) {
   if (!cronSecret) {
     return NextResponse.json({ 
       success: false, 
-      error: "CRON_SECRET is not set in Vercel environment variables." 
+      error: "CRON_SECRET is not set in environment variables." 
     }, { status: 500 });
   }
 
@@ -20,38 +20,56 @@ export async function POST(req: NextRequest) {
     }, { status: 401 });
   }
 
-  const RENDER_URL = process.env.RENDER_URL;
+  const RENDER_URLS = process.env.RENDER_URL?.split(",").map(url => url.trim()).filter(Boolean) || [];
 
-  if (!RENDER_URL) {
+  if (RENDER_URLS.length === 0) {
     return NextResponse.json({ 
       success: false, 
-      error: "RENDER_URL is not configured in Vercel." 
+      error: "RENDER_URL is not configured." 
     }, { status: 500 });
   }
 
   try {
-    const start = Date.now();
-    const response = await fetch(RENDER_URL, {
-      method: "GET",
-      headers: { "User-Agent": "CronPulse-Monitor/1.0" },
-      cache: "no-store",
-    });
+    const results = await Promise.all(RENDER_URLS.map(async (url) => {
+      const start = Date.now();
+      try {
+        const response = await fetch(url, {
+          method: "GET",
+          headers: { "User-Agent": "CronPulse-Monitor/1.0" },
+          cache: "no-store",
+        });
+        const duration = Date.now() - start;
+        return {
+          url,
+          success: response.ok,
+          status: response.status,
+          duration: `${duration}ms`,
+          timestamp: new Date().toISOString(),
+          error: response.ok ? null : `Backend returned ${response.status}: ${response.statusText}`
+        };
+      } catch (error: any) {
+        return {
+          url,
+          success: false,
+          error: `Fetch Error: ${error.message}`,
+          timestamp: new Date().toISOString(),
+        };
+      }
+    }));
 
-    const duration = Date.now() - start;
+    const allSuccessful = results.every(r => r.success);
 
     return NextResponse.json({
-      success: response.ok,
-      status: response.status,
-      duration: `${duration}ms`,
+      success: allSuccessful,
+      results,
       timestamp: new Date().toISOString(),
-      error: response.ok ? null : `Backend returned ${response.status}: ${response.statusText}`
     });
   } catch (error: any) {
     return NextResponse.json({
       success: false,
-      error: `Fetch Error: ${error.message}`,
+      error: `Unexpected Error: ${error.message}`,
       timestamp: new Date().toISOString(),
-    }, { status: 200 });
+    }, { status: 500 });
   }
 }
 

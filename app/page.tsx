@@ -8,7 +8,7 @@ export default function Home() {
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [renderUrl, setRenderUrl] = useState("");
   const [cronSecret, setCronSecret] = useState("");
-  const [lastPing, setLastPing] = useState<{ time: string; duration: string; status: number } | null>(null);
+  const [lastPings, setLastPings] = useState<{ url: string; duration: string; status: number; success: boolean }[]>([]);
   const [logs, setLogs] = useState<string[]>([]);
 
   // Load from local storage on mount
@@ -33,7 +33,7 @@ export default function Home() {
     if (!renderUrl) return;
     
     setStatus("loading");
-    setLogs(prev => [`[${new Date().toLocaleTimeString()}] Initiating manual pulse...`, ...prev]);
+    setLogs(prev => [`[${new Date().toLocaleTimeString()}] Initiating manual pulse for ${renderUrl.split(",").length} server(s)...`, ...prev]);
 
     try {
       const res = await fetch("/api/ping", {
@@ -46,14 +46,15 @@ export default function Home() {
       
       const data = await res.json().catch(() => ({ success: false, error: "Invalid response from server" }));
       
-      if (data.success) {
-        setStatus("success");
-        setLastPing({
-          time: new Date().toLocaleTimeString(),
-          duration: data.duration,
-          status: data.status
+      if (data.results) {
+        setStatus(data.success ? "success" : "error");
+        setLastPings(data.results);
+        
+        data.results.forEach((result: any) => {
+          const statusText = result.success ? `Successful (${result.duration})` : `Failed: ${result.error || "Unknown error"}`;
+          const urlBase = result.url.replace(/^https?:\/\//, "").split("/")[0];
+          setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${urlBase}: ${statusText}`, ...prev]);
         });
-        setLogs(prev => [`[${new Date().toLocaleTimeString()}] Pulse Successful (${data.duration})`, ...prev]);
       } else {
         setStatus("error");
         setLogs(prev => [`[${new Date().toLocaleTimeString()}] Pulse Failed: ${data.error || "Unauthorized"}`, ...prev]);
@@ -79,8 +80,8 @@ export default function Home() {
               animate={{ opacity: 1, y: 0 }}
               className="flex items-center gap-3 mb-2"
             >
-              <div className="p-2 bg-indigo-500/20 rounded-lg border border-indigo-500/30">
-                <Activity className="w-6 h-6 text-indigo-400" />
+              <div className="relative w-10 h-10 overflow-hidden rounded-xl border border-indigo-500/30 shadow-lg shadow-indigo-500/20">
+                <img src="/logo.png" alt="CronPulse Logo" className="w-full h-full object-cover" />
               </div>
               <h1 className="text-3xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
                 CronPulse
@@ -120,12 +121,12 @@ export default function Home() {
 
                 <div className="flex flex-col gap-6">
                   <div className="space-y-2">
-                    <label className="text-sm text-gray-400 ml-1">Target Render URL</label>
+                    <label className="text-sm text-gray-400 ml-1">Target Render URLs (comma separated)</label>
                     <div className="relative">
                       <Globe className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
                       <input 
                         type="text" 
-                        placeholder="https://your-app.onrender.com"
+                        placeholder="https://app1.onrender.com, https://app2.onrender.com"
                         value={renderUrl}
                         onChange={(e) => saveUrl(e.target.value)}
                         className="w-full bg-black/40 border border-white/10 rounded-2xl py-4 pl-12 pr-4 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all text-gray-200"
@@ -165,19 +166,26 @@ export default function Home() {
               </div>
             </motion.div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-6">
-                <p className="text-gray-400 text-sm mb-1">Last Response</p>
-                <p className="text-2xl font-mono font-bold text-white">
-                  {lastPing ? `${lastPing.duration}` : "--"}
-                </p>
-              </div>
-              <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-6">
-                <p className="text-gray-400 text-sm mb-1">Last Ping Time</p>
-                <p className="text-2xl font-mono font-bold text-white">
-                  {lastPing ? lastPing.time : "--:--:--"}
-                </p>
-              </div>
+            <div className="grid grid-cols-1 gap-4">
+              {lastPings.length > 0 ? (
+                lastPings.map((ping, i) => (
+                  <div key={i} className="bg-white/[0.03] border border-white/10 rounded-2xl p-6 flex items-center justify-between">
+                    <div>
+                      <p className="text-gray-400 text-xs mb-1 truncate max-w-[200px] md:max-w-md">{ping.url}</p>
+                      <p className="text-xl font-mono font-bold text-white">
+                        {ping.duration}
+                      </p>
+                    </div>
+                    <div className={`px-3 py-1 rounded-full text-xs font-bold ${ping.success ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"}`}>
+                      {ping.status || "ERR"}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-6 text-center">
+                  <p className="text-gray-500 text-sm italic">No pulse data yet. Trigger a pulse to see results.</p>
+                </div>
+              )}
             </div>
 
             <div className="bg-black/40 border border-white/10 rounded-2xl p-6 h-64 overflow-hidden flex flex-col">
